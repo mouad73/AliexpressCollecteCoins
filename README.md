@@ -57,6 +57,44 @@ The script will:
 6. Collect the daily coins
 7. Close the browser when complete
 
+## Automated Daily Collection with Windows Task Scheduler
+
+You can set up Windows Task Scheduler to run the script automatically once per day:
+
+### Create a Batch File
+
+1. Create a file named `run_collector.bat` in the project directory with the following content:
+   ```bat
+   @echo off
+   cd /d %~dp0
+   echo Running AliExpress Coin Collector at %date% %time%
+   python collect_coins.py
+   echo Collection completed at %date% %time%
+   pause
+   ```
+
+### Set Up Task Scheduler
+
+1. Press **Win + S** and search for "Task Scheduler"
+2. Click on "Create Basic Task..." in the right panel
+3. Enter a name (e.g., "AliExpress Coin Collector") and description
+4. Select "Daily" for the trigger and set your preferred time (e.g., 10:00 AM)
+5. Select "Start a program" for the action
+6. Browse and select your `run_collector.bat` file
+7. Set the "Start in" field to your project directory path (e.g., `C:\Users\username\AliExpress-Coin-Collector`)
+8. Check "Open the Properties dialog..." and click Finish
+9. In the Properties dialog:
+   - Go to the "General" tab and check "Run whether user is logged in or not"
+   - Go to the "Settings" tab and uncheck "Stop the task if it runs longer than..."
+   - Click "OK" to save the task
+
+### Important Notes about Automation
+
+- The script requires manual confirmation steps, so fully unattended operation isn't possible with the current version
+- If you want completely unattended operation, you would need to modify the script to remove the `input()` prompts
+- Running automated scripts that interact with websites may violate terms of service
+- Use at your own risk and consider AliExpress's policies
+
 ## Interactive Confirmation Steps
 
 This script uses interactive confirmations at critical points to ensure the correct elements are being selected. When prompted:
