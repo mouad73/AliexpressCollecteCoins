@@ -203,11 +203,9 @@ def change_country_to_korea(driver):
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'auto', block: 'center'});", ship_to_dropdown)
         random_sleep(1, 2)
         
-        # MANUAL CONFIRMATION STEP 1
-        input("STEP 1: Ship-to dropdown found. The element will be highlighted in red. Press Enter to click it...")
-        
-        # Highlight the element to make it obvious what will be clicked
+        # Highlight the element to make it visible in logs
         driver.execute_script("arguments[0].style.border='3px solid red'", ship_to_dropdown)
+        print("STEP 1: Ship-to dropdown found. Clicking automatically...")
         random_sleep(1, 1)
         
         # Click on the ship-to dropdown
@@ -231,11 +229,9 @@ def change_country_to_korea(driver):
             )
             print("Found country selector")
             
-            # MANUAL CONFIRMATION STEP 2
-            input("STEP 2: Country selector found. The element will be highlighted in red. Press Enter to click it...")
-            
             # Highlight the element
             driver.execute_script("arguments[0].style.border='3px solid red'", country_selector)
+            print("STEP 2: Country selector found. Clicking automatically...")
             random_sleep(1, 1)
             
             # Click on the country selector to open the dropdown
@@ -259,27 +255,43 @@ def change_country_to_korea(driver):
             )
             print("Found country search input")
             
-            # MANUAL CONFIRMATION STEP 3
-            input("STEP 3: Search input found. The element will be highlighted in red. Press Enter to click and type 'Korea'...")
-            
             # Highlight the element
             driver.execute_script("arguments[0].style.border='3px solid red'", search_input)
+            print("STEP 3: Search input found. Clicking and typing 'Korea' or '대한민국' automatically...")
             random_sleep(1, 1)
             
-            # Click on search input and type 'Korea'
+            # Click on search input and type 'Korea' or '대한민국' (Republic of Korea in Korean)
             search_input.click()
             random_sleep(0.5, 1)
-            type_like_human(search_input, "Korea")
+            
+            # Try with English first, if that fails, try Korean
+            search_term = "Korea"
+            type_like_human(search_input, search_term)
             random_sleep(1, 2)
+            
+            # Check if any results were found, if not, try with Korean
+            korea_options = driver.execute_script("""
+                return Array.from(document.querySelectorAll('div'))
+                       .filter(el => el.textContent.includes('Korea') && 
+                               (el.className.includes('item') || el.className.includes('option')));
+            """)
+            
+            # If no results with English, clear and try with Korean
+            if not korea_options or len(korea_options) == 0:
+                print("No results found with English 'Korea', trying with Korean '대한민국'")
+                search_input.clear()
+                random_sleep(0.5, 1)
+                type_like_human(search_input, "대한민국")  # Republic of Korea in Korean
+                random_sleep(1, 2)
             
             # Find and click on Korea from the filtered list
             print("Looking for Korea option in the dropdown popup...")
             
             try:
-                # Try with a more specific XPath targeting the exact structure
+                # Try with a more specific XPath targeting the exact structure (English or Korean)
                 korea_option = wait.until(
                     EC.element_to_be_clickable((By.XPATH, 
-                        "//div[@class='select--item--32FADYB' and contains(., 'Korea')]"))
+                        "//div[@class='select--item--32FADYB' and (contains(., 'Korea') or contains(., '대한민국'))]"))
                 )
                 print("Found Korea option with exact class match")
             except Exception as e:
@@ -288,15 +300,15 @@ def change_country_to_korea(driver):
                     # Try with a more general approach that looks for any div containing Korea with similar structure
                     korea_option = wait.until(
                         EC.element_to_be_clickable((By.XPATH, 
-                            "//div[contains(@class, 'select--item') and .//span[contains(text(), 'Korea')]]"))
+                            "//div[contains(@class, 'select--item') and .//span[(contains(text(), 'Korea') or contains(text(), '대한민국'))]]"))
                     )
                     print("Found Korea option with general class and span")
                 except Exception as e2:
                     print(f"Second Korea selector failed: {e2}, trying direct JavaScript selection")
-                    # Use JavaScript to find elements containing Korea text
+                    # Use JavaScript to find elements containing Korea text (English or Korean)
                     korea_options = driver.execute_script("""
                         return Array.from(document.querySelectorAll('div'))
-                               .filter(el => el.textContent.includes('Korea') && 
+                               .filter(el => (el.textContent.includes('Korea') || el.textContent.includes('대한민국')) && 
                                        (el.className.includes('item') || el.className.includes('option')));
                     """)
                     if korea_options and len(korea_options) > 0:
@@ -312,11 +324,9 @@ def change_country_to_korea(driver):
             
             print("Found Korea option")
             
-            # MANUAL CONFIRMATION STEP 4
-            input("STEP 4: Korea option found. The element will be highlighted in red. Press Enter to click it...")
-            
             # Highlight the element
             driver.execute_script("arguments[0].style.border='3px solid red'", korea_option)
+            print("STEP 4: Korea option found. Clicking automatically...")
             random_sleep(1, 1)
             
             driver.execute_script("arguments[0].scrollIntoView({behavior: 'auto', block: 'center'});", korea_option)
@@ -344,11 +354,9 @@ def change_country_to_korea(driver):
             )
             print("Found save button")
             
-            # MANUAL CONFIRMATION STEP 5
-            input("STEP 5: Save button found. The element will be highlighted in red. Press Enter to click it...")
-            
             # Highlight the element
             driver.execute_script("arguments[0].style.border='3px solid red'", save_button)
+            print("STEP 5: Save button found. Clicking automatically...")
             random_sleep(1, 1)
             
             driver.execute_script("arguments[0].scrollIntoView({behavior: 'auto', block: 'center'});", save_button)
@@ -365,9 +373,7 @@ def change_country_to_korea(driver):
             
             random_sleep(3, 5)
             print("Country has been saved")
-            
-            # MANUAL CONFIRMATION STEP 6
-            input("STEP 6: Country change complete. Press Enter to continue to the coin collection page...")
+            print("STEP 6: Country change complete. Continuing to the coin collection page...")
             
         except Exception as e:
             print(f"Save button interaction failed: {e}")
@@ -379,17 +385,147 @@ def change_country_to_korea(driver):
         print(f"Country change failed: {e}")
         return False
 
-def main():
-    # Configure Chrome options to be more stealthy
-    chrome_options = Options()
+def verify_korea_selected(driver):
+    """Verify that Korea is currently selected as the country"""
+    try:
+        wait = WebDriverWait(driver, 10)
+        
+        # Look for ship-to text that contains Korea or 대한민국 (Republic of Korea in Korean)
+        ship_to_element = wait.until(
+            EC.presence_of_element_located((By.XPATH, 
+                "//div[contains(@class, 'ship-to--text--')]"))
+        )
+        
+        # Get the text content
+        ship_to_text = ship_to_element.text
+        print(f"Current ship-to text: {ship_to_text}")
+        
+        # Special case for "KO/" which is a confirmed marker for Korean
+        if "KO/" in ship_to_text:
+            print("Found 'KO/' in ship-to text - Korea is definitely selected")
+            return "KO_FOUND"  # Special return value indicating KO/ was found
+            
+        # Standard check for other indicators
+        if 'Korea' in ship_to_text or '한국' in ship_to_text or '대한민국' in ship_to_text:
+            print("Korea is selected as the country")
+            return True
+        else:
+            print("Korea is NOT selected as the country")
+            return False
+            
+    except Exception as e:
+        print(f"Error verifying Korea selection: {e}")
+        return False
+
+def find_and_click_collect_button(driver):
+    """Find and click the coin collect button with multiple approaches"""
+    print("STEP 7: Looking for the Collect button...")
+    wait = WebDriverWait(driver, 15)
     
-    # Add options that make automation less detectable
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    # List of possible selectors for the collect button - ordered from most to least specific
+    collect_button_selectors = [
+        "//div[contains(@class, 'checkin-button')]",
+        "//div[contains(text(), 'Collect') and contains(@class, 'button')]",
+        "//div[contains(text(), '출석체크') and contains(@class, 'button')]",  # Korean for "attendance check"
+        "//div[contains(text(), '적립하기') and contains(@class, 'button')]",   # Korean for "collect"
+        "//div[contains(text(), '체크인') and contains(@class, 'button')]",     # Korean for "check-in"
+        "//button[contains(@class, 'check-in') or contains(@class, 'checkin')]",
+        "//div[contains(@class, 'coin') and contains(@class, 'collect')]",
+    ]
+    
+    # Try each selector until one works
+    for selector in collect_button_selectors:
+        try:
+            print(f"Trying to find collect button with selector: {selector}")
+            collect_button = wait.until(
+                EC.presence_of_element_located((By.XPATH, selector))
+            )
+            print(f"Found the Collect button using selector: {selector}")
+            
+            # Highlight the button to make it more visible
+            driver.execute_script("arguments[0].style.border='3px solid red'", collect_button)
+            random_sleep(1, 2)
+            
+            # Scroll to make button visible if needed
+            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", collect_button)
+            random_sleep(1, 2)
+            
+            # Try to click button with several methods
+            try:
+                # Move mouse naturally to the button first
+                move_mouse_randomly(driver, collect_button)
+                
+                # Try normal click
+                collect_button.click()
+                print("Clicked collect button using normal click")
+            except Exception as e:
+                print(f"Normal click failed: {e}, trying JavaScript click")
+                driver.execute_script("arguments[0].click();", collect_button)
+                print("Clicked collect button using JavaScript")
+            
+            # Wait after clicking to see the result
+            random_sleep(5, 7)
+            print("Collect button clicked successfully")
+            return True
+            
+        except Exception as e:
+            print(f"Couldn't find or click collect button with selector {selector}: {e}")
+            continue
+    
+    # If no button found, try a more aggressive approach - look for any clickable element that might be the collect button
+    try:
+        print("Trying fallback approach - looking for any element that might be the collect button")
+        
+        # Use JavaScript to find elements that might be collect buttons
+        potential_buttons = driver.execute_script("""
+            return Array.from(document.querySelectorAll('div, button, a'))
+                  .filter(el => {
+                      const text = el.textContent.toLowerCase();
+                      return (text.includes('collect') || 
+                              text.includes('check') || 
+                              text.includes('출석') || 
+                              text.includes('적립') || 
+                              text.includes('체크')) && 
+                             (el.className.includes('button') || 
+                              el.tagName === 'BUTTON' ||
+                              el.style.cursor === 'pointer');
+                  });
+        """)
+        
+        if potential_buttons and len(potential_buttons) > 0:
+            print(f"Found {len(potential_buttons)} potential collect buttons using JavaScript")
+            
+            # Try clicking the first potential button
+            button = potential_buttons[0]
+            driver.execute_script("arguments[0].style.border='3px solid red'", button)
+            random_sleep(1, 2)
+            
+            # Scroll to button
+            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", button)
+            random_sleep(1, 2)
+            
+            # Click the button using JavaScript
+            driver.execute_script("arguments[0].click();", button)
+            
+            print("Clicked potential collect button using JavaScript")
+            random_sleep(5, 7)
+            return True
+    except Exception as e:
+        print(f"Fallback approach failed: {e}")
+    
+    print("Could not find any collect button despite multiple attempts")
+    print("*** WILL RESTART FROM STEP 1 (COUNTRY SELECTION) ***")
+    return False
+
+def main():
+    """Main function to run the coin collection process"""
+    # Set up Chrome options
+    chrome_options = Options()
+    # chrome_options.add_argument("--headless")  # Uncomment to run in headless mode
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Helps avoid detection
+    chrome_options.add_argument("--start-maximized")  # Start with maximized window
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
-    
-    # Make the browser window visible and maximized
-    chrome_options.add_argument("--start-maximized")
     
     # Initialize the WebDriver
     service = Service(ChromeDriverManager().install())
@@ -402,73 +538,67 @@ def main():
     
     try:
         # Navigate to the website
-        driver.get("https://www.aliexpress.com/p/coin-pc-index/index.html")
+        driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
         print("Website loaded")
         
         # Add random delay to simulate page load analysis by human
         random_sleep(2, 4)
         
         # Check if we need to login and proceed with login if necessary
-        if login(driver):
-            print("Successfully logged in, proceeding to change country...")
-            
-            # Change country to Korea
-            if change_country_to_korea(driver):
-                print("Successfully changed country to Korea")
-                
-                # After changing country, we need to navigate back to the coin page
-                print("Navigating back to coin collection page...")
-                driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
-                random_sleep(3, 5)
-            else:
-                print("Country change failed, continuing anyway...")
+        login_successful = login(driver)
+        if not login_successful:
+            print("Login process failed, attempting to continue anyway...")
         else:
-            print("Login process failed or wasn't needed, attempting to collect coins anyway...")
+            print("Successfully logged in")
+
+        # Main collection loop - allows restarting from Step 1 when needed
+        max_total_attempts = 3  # Maximum number of complete cycles to try
+        total_attempts = 0
+        
+        while total_attempts < max_total_attempts:
+            total_attempts += 1
+            print(f"Starting collection attempt {total_attempts}/{max_total_attempts}")
             
-        # Add more random delay to simulate natural browsing behavior
-        random_sleep(2, 3)
-        
-        # Scroll down gradually to simulate human reading
-        total_height = driver.execute_script("return document.body.scrollHeight")
-        viewport_height = driver.execute_script("return window.innerHeight")
-        current_position = 0
-        
-        while current_position < total_height:
-            # Scroll a random amount
-            scroll_amount = random.randint(100, 300)
-            current_position += scroll_amount
-            driver.execute_script(f"window.scrollTo(0, {current_position});")
-            random_sleep(0.5, 1.5)
-        
-        # Wait for the button to be present
-        print("Looking for the Collect button...")
-        wait = WebDriverWait(driver, 15)
-        collect_button = wait.until(
-            EC.presence_of_element_located((By.XPATH, 
-                "//div[contains(@class, 'checkin-button')]"))
-        )
-        print("Found the Collect button")
-        
-        # Scroll to make button visible if needed
-        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", collect_button)
-        random_sleep(1, 2)
-        
-        # Move mouse naturally to the button
-        move_mouse_randomly(driver, collect_button)
-        
-        # Click the button
-        print("Clicking the Collect button...")
-        collect_button.click()
-        
-        # Wait after clicking to see the result
-        random_sleep(5, 7)
-        print("Button clicked successfully")
+            # STEP 1-5: Change country to Korea (Step 6 is inside the function)
+            print("RESTARTING FROM STEP 1: Changing country to Korea")
+            if change_country_to_korea(driver):
+                # After saving country, the page should reload with Korean interface
+                # Wait a bit for the page to reload/update
+                random_sleep(5, 7)
+                
+                # Navigate to the coin page
+                print("Going to coin page after country change.")
+                driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
+                random_sleep(5, 7)
+                
+                # STEP 7: Look for the collect button
+                if find_and_click_collect_button(driver):
+                    print("Successfully collected coins!")
+                    break  # Exit the loop if successful
+                else:
+                    print(f"Failed to find collect button on attempt {total_attempts}, restarting from Step 1")
+                    # Continue loop to restart from Step 1
+            else:
+                print(f"Country change failed on attempt {total_attempts}")
+                
+                # If we're on the last attempt and country change failed, try the coin page anyway
+                if total_attempts >= max_total_attempts:
+                    print("Maximum attempts reached. Trying coin page directly as last resort...")
+                    driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
+                    random_sleep(5, 7)
+                    find_and_click_collect_button(driver)
+                
+        if total_attempts >= max_total_attempts:
+            print("Maximum attempts reached without successful coin collection.")
+            
+        print("Coin collection process completed.")
         
     except Exception as e:
         print(f"An error occurred: {e}")
     
     finally:
         # Don't close the browser immediately
+        print("Script execution complete. Closing browser in 5 seconds...")
         random_sleep(3, 5)
         driver.quit()
 
