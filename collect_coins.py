@@ -527,13 +527,124 @@ def main():
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
     
-    # Initialize the WebDriver
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+    # Define path to chromedriver
+    import os
+    chromedriver_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drivers")
+    os.makedirs(chromedriver_dir, exist_ok=True)
+    
+    # Use direct path to the chromedriver in the drivers folder
+    driver_path = os.path.join(chromedriver_dir, "chromedriver.exe")
+    
+    # Always remove the existing ChromeDriver to ensure we get a fresh compatible version
+    if os.path.exists(driver_path):
+        try:
+            os.remove(driver_path)
+            print(f"Removed existing ChromeDriver: {driver_path}")
+        except Exception as e:
+            print(f"Could not remove existing ChromeDriver: {e}")
+    
+    # Download and set up ChromeDriver
+    print("Downloading compatible ChromeDriver version...")
+    try:
+        # Get Chrome version from registry
+        import winreg
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Google\Chrome\BLBeacon')
+            version, _ = winreg.QueryValueEx(key, 'version')
+            chrome_version = version.split('.')[0]  # Get major version
+            print(f"Detected Chrome version: {version} (Major: {chrome_version})")
+        except Exception as e:
+            print(f"Failed to detect Chrome version from registry: {e}")
+            chrome_version = "135"  # Default to Chrome 135
+        
+        # Download ChromeDriver for Chrome 135+
+        import urllib.request
+        import zipfile
+        import shutil
+        
+        # For Chrome 115+, we need to use the Chrome for Testing (CfT) drivers
+        print(f"Using Chrome for Testing driver for Chrome {chrome_version}")
+            
+        # For Chrome 135, use a direct URL - sometimes the API is not updated fast enough
+        cft_version = "135.0.7049.0"  # Match to your Chrome version
+        download_url = f"https://storage.googleapis.com/chrome-for-testing-public/{cft_version}/win64/chromedriver-win64.zip"
+        print(f"Using direct URL for Chrome {chrome_version}: {download_url}")
+        
+        # Download chromedriver zip
+        zip_path = os.path.join(chromedriver_dir, "chromedriver.zip")
+        print(f"Downloading ChromeDriver from {download_url}")
+        urllib.request.urlretrieve(download_url, zip_path)
+        
+        # Extract the zip file
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(chromedriver_dir)
+        
+        # For Chrome 115+, the chromedriver is in a subdirectory
+        chromedriver_extracted_dir = os.path.join(chromedriver_dir, "chromedriver-win64")
+        if os.path.exists(chromedriver_extracted_dir):
+            # Copy chromedriver.exe from the subdirectory to the main directory
+            src_path = os.path.join(chromedriver_extracted_dir, "chromedriver.exe")
+            if os.path.exists(src_path):
+                shutil.copy(src_path, driver_path)
+                print(f"Copied chromedriver.exe from {src_path} to {driver_path}")
+            else:
+                # List all files to help debug
+                print(f"Expected chromedriver at {src_path} but it doesn't exist.")
+                print(f"Files in {chromedriver_extracted_dir}: {os.listdir(chromedriver_extracted_dir)}")
+                
+                # Search for chromedriver.exe in case structure changed
+                for root, dirs, files in os.walk(chromedriver_dir):
+                    for file in files:
+                        if file.lower() == "chromedriver.exe":
+                            found_path = os.path.join(root, file)
+                            print(f"Found chromedriver.exe at {found_path}")
+                            shutil.copy(found_path, driver_path)
+                            print(f"Copied to {driver_path}")
+                            break
+        else:
+            print(f"Warning: Expected directory {chromedriver_extracted_dir} not found.")
+            # List all extracted files to help debug
+            print(f"Files in {chromedriver_dir}: {os.listdir(chromedriver_dir)}")
+            
+            # Look for chromedriver.exe in case extraction happened differently
+            for root, dirs, files in os.walk(chromedriver_dir):
+                for file in files:
+                    if file.lower() == "chromedriver.exe" and os.path.join(root, file) != driver_path:
+                        found_path = os.path.join(root, file)
+                        print(f"Found chromedriver.exe at {found_path}")
+                        shutil.copy(found_path, driver_path)
+                        print(f"Copied to {driver_path}")
+                        break
+        
+        # Remove the zip file
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+            
+        print("ChromeDriver downloaded and extracted successfully")
+        
+    except Exception as e:
+        print(f"Failed to download ChromeDriver: {e}")
+        return
+    
+    # Initialize WebDriver
+    if not os.path.exists(driver_path):
+        print(f"Error: ChromeDriver not found at {driver_path}")
+        return
+        
+    print(f"Using ChromeDriver at: {driver_path}")
+    service = Service(driver_path)
+    
+    try:
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        print("WebDriver initialized successfully")
+    except Exception as e:
+        print(f"Failed to initialize WebDriver: {e}")
+        print("Please make sure Chrome and ChromeDriver versions match")
+        return
     
     # Set a realistic user agent
     driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
     })
     
     try:
