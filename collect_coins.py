@@ -1,6 +1,7 @@
 import time
 import random
 import os
+import sys
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -11,6 +12,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.keys import Keys
+
+
+# === FORCE UTF-8 OUTPUT ===
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 # Load environment variables from .env file
 load_dotenv()
