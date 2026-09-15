@@ -29,3 +29,5 @@ build/
 # OS specific files
 .DS_Store
 Thumbs.db
+# Chrome profile (login cookies)
+chrome_profile/

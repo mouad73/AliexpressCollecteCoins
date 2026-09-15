@@ -10,7 +10,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver import ActionChains
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.keys import Keys
 
 
@@ -18,12 +17,25 @@ from selenium.webdriver.common.keys import Keys
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Load environment variables from .env file
-load_dotenv()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+COIN_URL = "https://s.click.aliexpress.com/e/_DB2kEjh"
+# Dedicated Chrome profile: keeps the cookies, so you only need to log in once
+PROFILE_DIR = os.path.join(SCRIPT_DIR, "chrome_profile")
+# Max time (seconds) to wait for you to solve a captcha / finish login manually in the window
+MANUAL_LOGIN_TIMEOUT = 300
+# Country select in the "Ship to" popup: the only one whose list has the KR flag
+COUNTRY_SELECT_XPATH = ("//div[contains(@class, 'select--wrap--') and "
+                        ".//span[contains(concat(' ', normalize-space(@class), ' '), ' KR ')]]")
+
+# Load environment variables from .env file (next to the script, works from Task Scheduler too)
+load_dotenv(os.path.join(SCRIPT_DIR, ".env"))
 
 # Get credentials from environment variables
 ALIEXPRESS_EMAIL = os.getenv("ALIEXPRESS_EMAIL")
 ALIEXPRESS_PASSWORD = os.getenv("ALIEXPRESS_PASSWORD")
+
+print(f"Loaded Email: {ALIEXPRESS_EMAIL}")
+print(f"Loaded Password: {'*' * len(ALIEXPRESS_PASSWORD) if ALIEXPRESS_PASSWORD else 'None'}")
 
 # Check if credentials are available
 if not ALIEXPRESS_EMAIL or not ALIEXPRESS_PASSWORD:
@@ -69,23 +81,72 @@ def type_like_human(element, text):
         if random.random() < 0.05:
             random_sleep(0.5, 1.2)
 
+def is_logged_in(driver):
+    """AliExpress only puts x_lid (user id) in the xman_us_t cookie after login"""
+    try:
+        cookie = driver.get_cookie("xman_us_t")
+        return bool(cookie and "x_lid=" in cookie.get("value", ""))
+    except Exception:
+        return False
+
+def wait_for_manual_login(driver, timeout=MANUAL_LOGIN_TIMEOUT):
+    """Give the user time to solve a captcha / finish login in the open window instead of hanging"""
+    print(f">>> Finish the login manually in the Chrome window (solve the captcha if one appears). "
+          f"Waiting up to {timeout}s...")
+    end = time.time() + timeout
+    while time.time() < end:
+        if is_logged_in(driver):
+            print("Login detected!")
+            return True
+        time.sleep(3)
+    print("Timed out waiting for manual login.")
+    return False
+
 def login(driver):
     """Perform the login process with human-like behavior"""
+    if is_logged_in(driver):
+        print("Already logged in (session saved in chrome_profile), skipping login.")
+        return True
     try:
         print("Starting login process...")
-        
-        # Wait for the email input field
         wait = WebDriverWait(driver, 15)
+        short_wait = WebDriverWait(driver, 5)
+
+        # The email input has no placeholder or id: "Email or phone number" is a floating label.
+        email_xpath = ("//input[contains(@class, 'cosmos-input') and "
+                       "(contains(@aria-label, 'mail') or contains(@aria-label, 'phone') or "
+                       "contains(@aria-label, 'telefone') or @autocomplete='username webauthn')]")
+
+        # STEP 1: Click the "Sign in" button only if the login form is not already on screen
+        # (the coins link redirects straight to the login page).
+        print("Looking for 'Sign in' button...")
+        try:
+            if driver.find_elements(By.XPATH, email_xpath):
+                raise Exception("login form already visible")
+            sign_in_button = short_wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Sign in') or contains(text(), 'Entrar')]"))
+            )
+            # Fall back to a JavaScript click if the normal click fails
+            try:
+                sign_in_button.click()
+            except:
+                driver.execute_script("arguments[0].click();", sign_in_button)
+            print("Clicked 'Sign in' button.")
+            random_sleep(2, 4) # Wait for the modal to open
+        except Exception as e:
+            print(f"Could not find or click 'Sign in' button: {e}. Assuming login form is already visible.")
+            # If the button is not found, assume the form is already visible and continue.
+
+        # STEP 2: Find the email input.
+        print("Waiting for email input field...")
         email_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input.cosmos-input[label='Email']"))
+            EC.visibility_of_element_located((By.XPATH, email_xpath))
         )
         print("Found email input field")
         
-        # Ensure email field is visible in the viewport
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'auto', block: 'center'});", email_input)
         random_sleep(1, 2)
         
-        # Try to click directly without sophisticated mouse movement
         try:
             email_input.click()
         except Exception as e:
@@ -94,85 +155,76 @@ def login(driver):
         
         random_sleep(0.5, 1.5)
         
-        # Type email with human-like behavior
         print("Entering email address...")
-        type_like_human(email_input, ALIEXPRESS_EMAIL)  # Use environment variable
+        type_like_human(email_input, ALIEXPRESS_EMAIL)
         random_sleep(1, 2)
         
-        # Find and click the Continue button
+        # STEP 3: Click "Continue".
         continue_button = wait.until(
             EC.element_to_be_clickable((By.XPATH, 
-                "//button[contains(@class, 'cosmos-btn-primary') and .//span[text()='Continue']]"))
+                "//button[contains(@class, 'cosmos-btn-primary') and "
+                "(@aria-label='Continue' or @aria-label='Continuar' or normalize-space(.)='Continue' or normalize-space(.)='Continuar')]"))
         )
         print("Found continue button")
-        
-        # Ensure button is in view and click it
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'auto', block: 'center'});", continue_button)
         random_sleep(0.5, 1)
-        
         try:
             continue_button.click()
         except Exception as e:
             print(f"Direct click failed: {e}, trying JavaScript click")
             driver.execute_script("arguments[0].click();", continue_button)
-            
         print("Clicked continue button")
         random_sleep(2, 3)
         
-        # Wait for password field to appear
+        # STEP 4: Enter the password.
         password_input = wait.until(
-            EC.presence_of_element_located((By.ID, "fm-login-password"))
+            EC.visibility_of_element_located((By.XPATH, "//input[@id='fm-login-password' or @type='password']"))
         )
         print("Found password field")
-        
-        # Ensure password field is in view
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'auto', block: 'center'});", password_input)
         random_sleep(0.5, 1)
-        
-        # Click on password field
         try:
             password_input.click()
         except Exception as e:
             print(f"Direct click failed: {e}, trying JavaScript click")
             driver.execute_script("arguments[0].click();", password_input)
-            
         random_sleep(0.5, 1)
         
-        # Type password with human-like behavior
         print("Entering password...")
-        type_like_human(password_input, ALIEXPRESS_PASSWORD)  # Use environment variable
+        type_like_human(password_input, ALIEXPRESS_PASSWORD)
         random_sleep(1, 2)
         
-        # Find and click the Sign in button
-        sign_in_button = wait.until(
+        # STEP 5: Click the final "Sign in" button.
+        # The button text varies by language, so match several.
+        print("Looking for final 'Sign in' button...")
+        sign_in_button_final = wait.until(
             EC.element_to_be_clickable((By.XPATH, 
-                "//button[contains(@class, 'cosmos-btn-primary') and .//span[text()='Sign in']]"))
+                "//button[contains(@class, 'cosmos-btn-primary') and "
+                "(contains(@aria-label, 'Sign in') or contains(@aria-label, 'Entrar') or "
+                "contains(normalize-space(.), 'Sign in') or contains(normalize-space(.), 'Entrar'))]"))
         )
-        print("Found sign in button")
-        
-        # Ensure sign in button is in view and click it
-        driver.execute_script("arguments[0].scrollIntoView({behavior: 'auto', block: 'center'});", sign_in_button)
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'auto', block: 'center'});", sign_in_button_final)
         random_sleep(0.5, 1)
-        
         try:
-            sign_in_button.click()
+            sign_in_button_final.click()
         except Exception as e:
             print(f"Direct click failed: {e}, trying JavaScript click")
-            driver.execute_script("arguments[0].click();", sign_in_button)
-            
-        print("Clicked sign in button")
-        
-        # Wait for login to complete
-        # Give more time for the login process to complete
-        random_sleep(5, 7)
-        print("Login successful")
-        
-        return True
-    
-    except Exception as e:
-        print(f"Login failed: {e}")
-        return False
+            driver.execute_script("arguments[0].click();", sign_in_button_final)
+        print("Clicked final sign in button")
 
+        # Confirm the login actually worked (a captcha/slider may appear after the password)
+        for _ in range(10):
+            if is_logged_in(driver):
+                print("Login successful")
+                return True
+            time.sleep(1)
+        print("Login not confirmed (captcha or verification probably appeared).")
+        return wait_for_manual_login(driver)
+
+    except Exception as e:
+        print(f"Automatic login failed: {e}")
+        return wait_for_manual_login(driver)
+    
 def change_country_to_korea(driver):
     """Change the country to Korea using the ship-to dropdown with manual confirmation at each step"""
     try:
@@ -229,9 +281,10 @@ def change_country_to_korea(driver):
         # First, find the country selector text element
         try:
             print("Looking for country selector...")
+            # The popup has several selects (ZIP code, country, language, currency) with the same class.
+            # The country one is the only list containing the KR flag, which works in any language.
             country_selector = wait.until(
-                EC.element_to_be_clickable((By.XPATH, 
-                    "//div[contains(@class, 'select--text--1b85oDo')]"))
+                EC.element_to_be_clickable((By.XPATH, COUNTRY_SELECT_XPATH + "//div[contains(@class, 'select--text--')]"))
             )
             print("Found country selector")
             
@@ -254,80 +307,13 @@ def change_country_to_korea(driver):
                 
             random_sleep(1.5, 2.5)
             
-            # Now that the country dropdown is open, search for Korea
-            search_input = wait.until(
-                EC.presence_of_element_located((By.XPATH, 
-                    "//div[contains(@class, 'select--search--20Pss08')]/input"))
+            # Korea option: identified by the KR flag (the name changes: Korea / República da Coreia / 대한민국)
+            print("STEP 3: Looking for Korea option (KR flag) in the dropdown popup...")
+            korea_option = wait.until(
+                EC.presence_of_element_located((By.XPATH,
+                    COUNTRY_SELECT_XPATH + "//div[contains(@class, 'select--item--') and "
+                    ".//span[contains(concat(' ', normalize-space(@class), ' '), ' KR ')]]"))
             )
-            print("Found country search input")
-            
-            # Highlight the element
-            driver.execute_script("arguments[0].style.border='3px solid red'", search_input)
-            print("STEP 3: Search input found. Clicking and typing 'Korea' or '대한민국' automatically...")
-            random_sleep(1, 1)
-            
-            # Click on search input and type 'Korea' or '대한민국' (Republic of Korea in Korean)
-            search_input.click()
-            random_sleep(0.5, 1)
-            
-            # Try with English first, if that fails, try Korean
-            search_term = "Korea"
-            type_like_human(search_input, search_term)
-            random_sleep(1, 2)
-            
-            # Check if any results were found, if not, try with Korean
-            korea_options = driver.execute_script("""
-                return Array.from(document.querySelectorAll('div'))
-                       .filter(el => el.textContent.includes('Korea') && 
-                               (el.className.includes('item') || el.className.includes('option')));
-            """)
-            
-            # If no results with English, clear and try with Korean
-            if not korea_options or len(korea_options) == 0:
-                print("No results found with English 'Korea', trying with Korean '대한민국'")
-                search_input.clear()
-                random_sleep(0.5, 1)
-                type_like_human(search_input, "대한민국")  # Republic of Korea in Korean
-                random_sleep(1, 2)
-            
-            # Find and click on Korea from the filtered list
-            print("Looking for Korea option in the dropdown popup...")
-            
-            try:
-                # Try with a more specific XPath targeting the exact structure (English or Korean)
-                korea_option = wait.until(
-                    EC.element_to_be_clickable((By.XPATH, 
-                        "//div[@class='select--item--32FADYB' and (contains(., 'Korea') or contains(., '대한민국'))]"))
-                )
-                print("Found Korea option with exact class match")
-            except Exception as e:
-                print(f"First Korea selector failed: {e}, trying alternative approach")
-                try:
-                    # Try with a more general approach that looks for any div containing Korea with similar structure
-                    korea_option = wait.until(
-                        EC.element_to_be_clickable((By.XPATH, 
-                            "//div[contains(@class, 'select--item') and .//span[(contains(text(), 'Korea') or contains(text(), '대한민국'))]]"))
-                    )
-                    print("Found Korea option with general class and span")
-                except Exception as e2:
-                    print(f"Second Korea selector failed: {e2}, trying direct JavaScript selection")
-                    # Use JavaScript to find elements containing Korea text (English or Korean)
-                    korea_options = driver.execute_script("""
-                        return Array.from(document.querySelectorAll('div'))
-                               .filter(el => (el.textContent.includes('Korea') || el.textContent.includes('대한민국')) && 
-                                       (el.className.includes('item') || el.className.includes('option')));
-                    """)
-                    if korea_options and len(korea_options) > 0:
-                        korea_option = korea_options[0]
-                        print("Found Korea option using JavaScript")
-                    else:
-                        # Last resort - try to find by the flag class
-                        korea_option = wait.until(
-                            EC.element_to_be_clickable((By.XPATH, 
-                                "//span[contains(@class, 'country-flag') and contains(@class, 'KR')]/following-sibling::span"))
-                        ).parent
-                        print("Found Korea option via country flag")
-            
             print("Found Korea option")
             
             # Highlight the element
@@ -356,7 +342,7 @@ def change_country_to_korea(driver):
         try:
             save_button = wait.until(
                 EC.element_to_be_clickable((By.XPATH, 
-                    "//div[contains(@class, 'es--saveBtn--w8EuBuy')]"))
+                    "//div[contains(@class, 'es--saveBtn--')]"))
             )
             print("Found save button")
             
@@ -391,34 +377,30 @@ def change_country_to_korea(driver):
         print(f"Country change failed: {e}")
         return False
 
+def set_korea_cookie(driver):
+    """Force the Korea region through the aep_usuc_f cookie (the same value the popup saves).
+    Needed when the account has a saved address and the popup only changes the language."""
+    driver.add_cookie({
+        "name": "aep_usuc_f",
+        "value": "site=kor&c_tp=KRW&region=KR&b_locale=ko_KR",
+        "domain": ".aliexpress.com",
+        "path": "/",
+        "expiry": int(time.time()) + 365 * 24 * 3600,
+    })
+    print("Region cookie set to Korea (region=KR, KRW)")
+
 def verify_korea_selected(driver):
-    """Verify that Korea is currently selected as the country"""
+    """Verify Korea is the ship-to country by the header flag.
+    The text is not reliable: 'City/KO/BRL' contains KO (language) while the country is still Brazil."""
     try:
-        wait = WebDriverWait(driver, 10)
-        
-        # Look for ship-to text that contains Korea or 대한민국 (Republic of Korea in Korean)
-        ship_to_element = wait.until(
-            EC.presence_of_element_located((By.XPATH, 
-                "//div[contains(@class, 'ship-to--text--')]"))
+        flag = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//span[contains(@class, 'ship-to--cssFlag--')]"))
         )
-        
-        # Get the text content
-        ship_to_text = ship_to_element.text
-        print(f"Current ship-to text: {ship_to_text}")
-        
-        # Special case for "KO/" which is a confirmed marker for Korean
-        if "KO/" in ship_to_text:
-            print("Found 'KO/' in ship-to text - Korea is definitely selected")
-            return "KO_FOUND"  # Special return value indicating KO/ was found
-            
-        # Standard check for other indicators
-        if 'Korea' in ship_to_text or '한국' in ship_to_text or '대한민국' in ship_to_text:
-            print("Korea is selected as the country")
-            return True
-        else:
-            print("Korea is NOT selected as the country")
-            return False
-            
+        text = driver.find_element(By.XPATH, "//div[contains(@class, 'ship-to--text--')]").text.replace("\n", " ")
+        is_korea = " KR" in f" {flag.get_attribute('class')} "
+        print(f"Current ship-to: {text} | flag: {flag.get_attribute('class').split()[-1]} -> "
+              f"{'Korea OK' if is_korea else 'NOT Korea'}")
+        return is_korea
     except Exception as e:
         print(f"Error verifying Korea selection: {e}")
         return False
@@ -525,137 +507,60 @@ def find_and_click_collect_button(driver):
 
 def main():
     """Main function to run the coin collection process"""
-    # Set up Chrome options
+        # Set up Chrome options
     chrome_options = Options()
-    # chrome_options.add_argument("--headless")  # Uncomment to run in headless mode
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Helps avoid detection
-    chrome_options.add_argument("--start-maximized")  # Start with maximized window
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
     
-    # Define path to chromedriver
-    import os
-    chromedriver_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drivers")
-    os.makedirs(chromedriver_dir, exist_ok=True)
+    # Force Chrome to start in English so Google Translate does not kick in
+    chrome_options.add_argument("--lang=en-US")
+    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--disable-infobars")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-software-rasterizer")
     
-    # Use direct path to the chromedriver in the drivers folder
-    driver_path = os.path.join(chromedriver_dir, "chromedriver.exe")
-    
-    # Always remove the existing ChromeDriver to ensure we get a fresh compatible version
-    if os.path.exists(driver_path):
-        try:
-            os.remove(driver_path)
-            print(f"Removed existing ChromeDriver: {driver_path}")
-        except Exception as e:
-            print(f"Could not remove existing ChromeDriver: {e}")
-    
-    # Download and set up ChromeDriver
-    print("Downloading compatible ChromeDriver version...")
-    try:
-        # Get Chrome version from registry
-        import winreg
-        try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Google\Chrome\BLBeacon')
-            version, _ = winreg.QueryValueEx(key, 'version')
-            chrome_version = version.split('.')[0]  # Get major version
-            print(f"Detected Chrome version: {version} (Major: {chrome_version})")
-        except Exception as e:
-            print(f"Failed to detect Chrome version from registry: {e}")
-            chrome_version = "135"  # Default to Chrome 135
-        
-        # Download ChromeDriver for Chrome 135+
-        import urllib.request
-        import zipfile
-        import shutil
-        
-        # For Chrome 115+, we need to use the Chrome for Testing (CfT) drivers
-        print(f"Using Chrome for Testing driver for Chrome {chrome_version}")
-            
-        # For Chrome 135, use a direct URL - sometimes the API is not updated fast enough
-        cft_version = "135.0.7049.0"  # Match to your Chrome version
-        download_url = f"https://storage.googleapis.com/chrome-for-testing-public/{cft_version}/win64/chromedriver-win64.zip"
-        print(f"Using direct URL for Chrome {chrome_version}: {download_url}")
-        
-        # Download chromedriver zip
-        zip_path = os.path.join(chromedriver_dir, "chromedriver.zip")
-        print(f"Downloading ChromeDriver from {download_url}")
-        urllib.request.urlretrieve(download_url, zip_path)
-        
-        # Extract the zip file
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(chromedriver_dir)
-        
-        # For Chrome 115+, the chromedriver is in a subdirectory
-        chromedriver_extracted_dir = os.path.join(chromedriver_dir, "chromedriver-win64")
-        if os.path.exists(chromedriver_extracted_dir):
-            # Copy chromedriver.exe from the subdirectory to the main directory
-            src_path = os.path.join(chromedriver_extracted_dir, "chromedriver.exe")
-            if os.path.exists(src_path):
-                shutil.copy(src_path, driver_path)
-                print(f"Copied chromedriver.exe from {src_path} to {driver_path}")
-            else:
-                # List all files to help debug
-                print(f"Expected chromedriver at {src_path} but it doesn't exist.")
-                print(f"Files in {chromedriver_extracted_dir}: {os.listdir(chromedriver_extracted_dir)}")
-                
-                # Search for chromedriver.exe in case structure changed
-                for root, dirs, files in os.walk(chromedriver_dir):
-                    for file in files:
-                        if file.lower() == "chromedriver.exe":
-                            found_path = os.path.join(root, file)
-                            print(f"Found chromedriver.exe at {found_path}")
-                            shutil.copy(found_path, driver_path)
-                            print(f"Copied to {driver_path}")
-                            break
-        else:
-            print(f"Warning: Expected directory {chromedriver_extracted_dir} not found.")
-            # List all extracted files to help debug
-            print(f"Files in {chromedriver_dir}: {os.listdir(chromedriver_dir)}")
-            
-            # Look for chromedriver.exe in case extraction happened differently
-            for root, dirs, files in os.walk(chromedriver_dir):
-                for file in files:
-                    if file.lower() == "chromedriver.exe" and os.path.join(root, file) != driver_path:
-                        found_path = os.path.join(root, file)
-                        print(f"Found chromedriver.exe at {found_path}")
-                        shutil.copy(found_path, driver_path)
-                        print(f"Copied to {driver_path}")
-                        break
-        
-        # Remove the zip file
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
-            
-        print("ChromeDriver downloaded and extracted successfully")
-        
-    except Exception as e:
-        print(f"Failed to download ChromeDriver: {e}")
-        return
-    
-    # Initialize WebDriver
-    if not os.path.exists(driver_path):
-        print(f"Error: ChromeDriver not found at {driver_path}")
-        return
-        
-    print(f"Using ChromeDriver at: {driver_path}")
-    service = Service(driver_path)
-    
-    try:
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        print("WebDriver initialized successfully")
-    except Exception as e:
-        print(f"Failed to initialize WebDriver: {e}")
-        print("Please make sure Chrome and ChromeDriver versions match")
-        return
-    
-    # Set a realistic user agent
-    driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+    # Disable the translator and password saving in Chrome's internal preferences
+    chrome_options.add_experimental_option('prefs', {
+        'credentials_enable_service': False,
+        'profile.password_manager_enabled': False,
+        'translate': {'enabled': False},
+        'intl.accept_languages': 'en-US,en'
     })
     
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+    chrome_options.add_argument(f"--user-data-dir={PROFILE_DIR}")
+
+    driver = None
+    try:
+        # Selenium 4.10+ downloads the matching chromedriver automatically (Selenium Manager)
+        print("Starting Chrome...")
+        driver = webdriver.Chrome(options=chrome_options)
+    except Exception as e:
+        print(f"Selenium Manager failed ({e}), trying drivers/chromedriver.exe")
+        local_driver = os.path.join(SCRIPT_DIR, "drivers", "chromedriver.exe")
+        try:
+            driver = webdriver.Chrome(service=Service(local_driver), options=chrome_options)
+        except Exception as e2:
+            print(f"Failed to start Chrome: {e2}")
+            print("Close any Chrome window still using the chrome_profile folder and try again.")
+            return
+    print("WebDriver initialized successfully")
+
+    # Prevent driver.get from hanging forever
+    driver.set_page_load_timeout(60)
+    # Hide navigator.webdriver (no user agent override: a UA from another Chrome version gives the bot away)
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    })
+
     try:
         # Navigate to the website
-        driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
+        try:
+            driver.get(COIN_URL)
+        except Exception as e:
+            print(f"Page load timed out ({e}), continuing with what loaded")
         print("Website loaded")
         
         # Add random delay to simulate page load analysis by human
@@ -678,32 +583,38 @@ def main():
             
             # STEP 1-5: Change country to Korea (Step 6 is inside the function)
             print("RESTARTING FROM STEP 1: Changing country to Korea")
-            if change_country_to_korea(driver):
-                # After saving country, the page should reload with Korean interface
-                # Wait a bit for the page to reload/update
-                random_sleep(5, 7)
-                
-                # Navigate to the coin page
-                print("Going to coin page after country change.")
-                driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
-                random_sleep(5, 7)
-                
-                # STEP 7: Look for the collect button
-                if find_and_click_collect_button(driver):
-                    print("Successfully collected coins!")
-                    break  # Exit the loop if successful
-                else:
-                    print(f"Failed to find collect button on attempt {total_attempts}, restarting from Step 1")
-                    # Continue loop to restart from Step 1
+            if verify_korea_selected(driver):
+                print("Korea already active, skipping popup")
             else:
-                print(f"Country change failed on attempt {total_attempts}")
-                
-                # If we're on the last attempt and country change failed, try the coin page anyway
-                if total_attempts >= max_total_attempts:
-                    print("Maximum attempts reached. Trying coin page directly as last resort...")
-                    driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
-                    random_sleep(5, 7)
-                    find_and_click_collect_button(driver)
+                if not change_country_to_korea(driver):
+                    print(f"Country popup failed on attempt {total_attempts}")
+                random_sleep(5, 7)
+
+                # With a saved account address, the popup sometimes only changes the language (KO) and keeps the old country.
+                if not verify_korea_selected(driver):
+                    print("Popup did not switch the country, forcing it via cookie...")
+                    set_korea_cookie(driver)
+                    driver.refresh()
+                    random_sleep(4, 6)
+
+            # Navigate to the coin page
+            print("Going to coin page after country change.")
+            try:
+                driver.get(COIN_URL)
+            except Exception as e:
+                print(f"Page load timed out ({e}), continuing with what loaded")
+            random_sleep(5, 7)
+
+            if not verify_korea_selected(driver):
+                print(f"Country is still NOT Korea on attempt {total_attempts} "
+                      "(the account address may be overriding it). Retrying...")
+                continue
+
+            # STEP 7: Look for the collect button
+            if find_and_click_collect_button(driver):
+                print("Successfully collected coins!")
+                break  # Exit the loop if successful
+            print(f"Failed to find collect button on attempt {total_attempts}, restarting from Step 1")
                 
         if total_attempts >= max_total_attempts:
             print("Maximum attempts reached without successful coin collection.")
