@@ -29,3 +29,6 @@ build/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Run log written by run_collector.bat
+collection_log.txt

@@ -162,10 +162,19 @@ def login(driver):
             
         print("Clicked sign in button")
         
-        # Wait for login to complete
-        # Give more time for the login process to complete
-        random_sleep(5, 7)
-        print("Login successful")
+        # Wait for login to complete: the password field should go away.
+        # If it's still there after 20s, the login failed (wrong password,
+        # captcha or 2FA prompt).
+        try:
+            WebDriverWait(driver, 20).until(
+                EC.invisibility_of_element_located((By.ID, "fm-login-password"))
+            )
+        except Exception:
+            print("Login NOT confirmed: the password field is still visible "
+                  "(wrong credentials, captcha or 2FA?)")
+            return False
+        random_sleep(2, 3)
+        print("Login confirmed: the login form is gone")
         
         return True
     
@@ -423,6 +432,15 @@ def verify_korea_selected(driver):
         print(f"Error verifying Korea selection: {e}")
         return False
 
+def click_took_effect(element, text_before):
+    """Best-effort check that a click did something: the element disappeared
+    or its text changed (e.g. "Collect" -> "Collected" / a countdown)."""
+    try:
+        return not element.is_displayed() or element.text != text_before
+    except Exception:
+        # Stale element: the page re-rendered after the click
+        return True
+
 def find_and_click_collect_button(driver):
     """Find and click the coin collect button with multiple approaches"""
     print("STEP 7: Looking for the Collect button...")
@@ -447,6 +465,7 @@ def find_and_click_collect_button(driver):
                 EC.presence_of_element_located((By.XPATH, selector))
             )
             print(f"Found the Collect button using selector: {selector}")
+            text_before = collect_button.text
             
             # Highlight the button to make it more visible
             driver.execute_script("arguments[0].style.border='3px solid red'", collect_button)
@@ -471,7 +490,11 @@ def find_and_click_collect_button(driver):
             
             # Wait after clicking to see the result
             random_sleep(5, 7)
-            print("Collect button clicked successfully")
+            if click_took_effect(collect_button, text_before):
+                print("Collect button clicked and the page changed: coins likely collected")
+            else:
+                print("Collect button clicked but nothing visibly changed "
+                      "(maybe already collected today): result NOT verified")
             return True
             
         except Exception as e:
@@ -483,18 +506,26 @@ def find_and_click_collect_button(driver):
         print("Trying fallback approach - looking for any element that might be the collect button")
         
         # Use JavaScript to find elements that might be collect buttons
+        # Only short, button-like elements whose text is a check-in phrase.
+        # Anything mentioning checkout, cart, buy, pay or orders is skipped so
+        # the fallback can never land on a shopping action.
         potential_buttons = driver.execute_script("""
+            const wanted = ['collect', 'check in', 'check-in', 'checkin',
+                            '출석', '적립', '체크인'];
+            const banned = ['checkout', 'cart', 'buy', 'pay', 'order', 'coupon',
+                            '결제', '구매', '장바구니', '주문'];
             return Array.from(document.querySelectorAll('div, button, a'))
                   .filter(el => {
-                      const text = el.textContent.toLowerCase();
-                      return (text.includes('collect') || 
-                              text.includes('check') || 
-                              text.includes('출석') || 
-                              text.includes('적립') || 
-                              text.includes('체크')) && 
-                             (el.className.includes('button') || 
+                      const text = (el.innerText || '').trim().toLowerCase();
+                      if (!text || text.length > 30) return false;
+                      if (banned.some(w => text.includes(w))) return false;
+                      if (el.tagName === 'A' && el.href &&
+                          !el.href.includes('coin')) return false;
+                      const cls = typeof el.className === 'string' ? el.className : '';
+                      return wanted.some(w => text.includes(w)) &&
+                             (cls.includes('button') ||
                               el.tagName === 'BUTTON' ||
-                              el.style.cursor === 'pointer');
+                              getComputedStyle(el).cursor === 'pointer');
                   });
         """)
         
@@ -503,6 +534,8 @@ def find_and_click_collect_button(driver):
             
             # Try clicking the first potential button
             button = potential_buttons[0]
+            print(f"Fallback candidate text: {button.text!r}")
+            text_before = button.text
             driver.execute_script("arguments[0].style.border='3px solid red'", button)
             random_sleep(1, 2)
             
@@ -515,6 +548,8 @@ def find_and_click_collect_button(driver):
             
             print("Clicked potential collect button using JavaScript")
             random_sleep(5, 7)
+            if not click_took_effect(button, text_before):
+                print("Nothing visibly changed after the fallback click: result NOT verified")
             return True
     except Exception as e:
         print(f"Fallback approach failed: {e}")
@@ -690,7 +725,7 @@ def main():
                 
                 # STEP 7: Look for the collect button
                 if find_and_click_collect_button(driver):
-                    print("Successfully collected coins!")
+                    print("Collect step finished (see the verification message above)")
                     break  # Exit the loop if successful
                 else:
                     print(f"Failed to find collect button on attempt {total_attempts}, restarting from Step 1")
