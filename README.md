@@ -57,6 +57,31 @@ The script will:
 6. Collect the daily coins
 7. Close the browser when complete
 
+## Running with Docker (Linux / servers)
+
+The image bundles Chromium and a matching chromedriver, so nothing needs to be
+downloaded at runtime and it works on Linux hosts.
+
+```
+cp .env.example .env        # fill in your credentials
+docker compose build
+docker compose run --rm collector
+```
+
+- Runs headless by default (`HEADLESS=true`).
+- The Chrome profile is kept in `./chrome-profile`, so after the first
+  successful login the session is reused on the next runs.
+- For daily collection, schedule `docker compose run --rm collector` with cron
+  or a systemd timer.
+
+Optional environment variables (also usable outside Docker):
+
+| Variable | Meaning |
+|---|---|
+| `HEADLESS` | `true` to run Chrome without a window |
+| `CHROME_PROFILE_DIR` | Chrome profile directory to keep the login session |
+| `CHROMEDRIVER_PATH` | Use this chromedriver instead of downloading one (Windows) or `/usr/bin/chromedriver` (Linux) |
+
 ## Automated Daily Collection with Windows Task Scheduler
 
 You can set up Windows Task Scheduler to run the script automatically once per day:
