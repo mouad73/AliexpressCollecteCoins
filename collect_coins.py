@@ -25,6 +25,10 @@ load_dotenv()
 ALIEXPRESS_EMAIL = os.getenv("ALIEXPRESS_EMAIL")
 ALIEXPRESS_PASSWORD = os.getenv("ALIEXPRESS_PASSWORD")
 
+# Coin page to open. Defaults to the plain AliExpress coin page; set COIN_PAGE_URL
+# in .env to use a different link (e.g. your own affiliate link).
+COIN_PAGE_URL = os.getenv("COIN_PAGE_URL") or "https://www.aliexpress.com/p/coin-pc-index/index.html"
+
 # Check if credentials are available
 if not ALIEXPRESS_EMAIL or not ALIEXPRESS_PASSWORD:
     print("Error: Environment variables for ALIEXPRESS_EMAIL and ALIEXPRESS_PASSWORD must be set.")
@@ -655,7 +659,7 @@ def main():
     
     try:
         # Navigate to the website
-        driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
+        driver.get(COIN_PAGE_URL)
         print("Website loaded")
         
         # Add random delay to simulate page load analysis by human
@@ -685,7 +689,7 @@ def main():
                 
                 # Navigate to the coin page
                 print("Going to coin page after country change.")
-                driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
+                driver.get(COIN_PAGE_URL)
                 random_sleep(5, 7)
                 
                 # STEP 7: Look for the collect button
@@ -701,7 +705,7 @@ def main():
                 # If we're on the last attempt and country change failed, try the coin page anyway
                 if total_attempts >= max_total_attempts:
                     print("Maximum attempts reached. Trying coin page directly as last resort...")
-                    driver.get("https://s.click.aliexpress.com/e/_DB2kEjh")
+                    driver.get(COIN_PAGE_URL)
                     random_sleep(5, 7)
                     find_and_click_collect_button(driver)
                 

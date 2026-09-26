@@ -40,6 +40,21 @@ An automated tool to help collect daily coins on AliExpress with human-like inte
    ALIEXPRESS_PASSWORD=your_actual_password
    ```
 
+5. (Optional) Set the coin page URL the script opens:
+   ```
+   COIN_PAGE_URL=https://www.aliexpress.com/p/coin-pc-index/index.html
+   ```
+   If unset, the script uses the plain AliExpress coin page above.
+
+### About the coin page link
+
+Earlier versions of this script opened a hardcoded AliExpress affiliate short link
+(`s.click.aliexpress.com/e/_DB2kEjh`). That link redirects to the coin page but tags
+your logged-in browser with an affiliate ID (`aff_fsk=_DB2kEjh`, `tt=CPS_NORMAL`),
+which can attribute your later purchases to that affiliate. The URL is now read
+from the `COIN_PAGE_URL` environment variable and defaults to the direct,
+untagged coin page, so you can see and choose which link is used.
+
 ## Usage
 
 Run the script with:
