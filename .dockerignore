@@ -1,0 +1,6 @@
+.git
+.env
+drivers/
+chrome-profile/
+collection_log.txt
+*.bat

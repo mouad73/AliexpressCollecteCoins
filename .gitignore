@@ -29,3 +29,6 @@ build/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Persistent Chrome profile used by the Docker setup
+chrome-profile/

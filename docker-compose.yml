@@ -1,0 +1,15 @@
+# One-shot run: `docker compose run --rm collector`
+# Schedule it with cron / a systemd timer for daily collection.
+services:
+  collector:
+    build: .
+    env_file: .env
+    environment:
+      - TZ=${TZ:-UTC}
+    volumes:
+      # Persistent Chrome profile: keeps you logged in between runs
+      - ./chrome-profile:/profile
+    shm_size: 1gb
+    # Chrome spawns many child processes; a real init reaps them
+    init: true
+    restart: "no"

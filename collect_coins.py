@@ -77,7 +77,7 @@ def login(driver):
         # Wait for the email input field
         wait = WebDriverWait(driver, 15)
         email_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input.cosmos-input[label='Email']"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, "input.cosmos-input[label^='Email']"))
         )
         print("Found email input field")
         
@@ -523,18 +523,10 @@ def find_and_click_collect_button(driver):
     print("*** WILL RESTART FROM STEP 1 (COUNTRY SELECTION) ***")
     return False
 
-def main():
-    """Main function to run the coin collection process"""
-    # Set up Chrome options
-    chrome_options = Options()
-    # chrome_options.add_argument("--headless")  # Uncomment to run in headless mode
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Helps avoid detection
-    chrome_options.add_argument("--start-maximized")  # Start with maximized window
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-    
+def setup_windows_chromedriver():
+    """Windows only: download a matching chromedriver.exe into ./drivers.
+    Returns its path, or None on failure."""
     # Define path to chromedriver
-    import os
     chromedriver_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drivers")
     os.makedirs(chromedriver_dir, exist_ok=True)
     
@@ -630,8 +622,41 @@ def main():
         
     except Exception as e:
         print(f"Failed to download ChromeDriver: {e}")
-        return
+        return None
+
+    return driver_path
+
+def main():
+    """Main function to run the coin collection process"""
+    # Set up Chrome options
+    chrome_options = Options()
+    if os.getenv("HEADLESS", "").lower() in ("1", "true", "yes"):
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--window-size=1920,1080")
+    if os.name != "nt":
+        # Needed when Chrome runs as root / in a container
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+    # Reuse a persistent Chrome profile so the login session survives between runs
+    profile_dir = os.getenv("CHROME_PROFILE_DIR")
+    if profile_dir:
+        chrome_options.add_argument(f"--user-data-dir={profile_dir}")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Helps avoid detection
+    chrome_options.add_argument("--start-maximized")  # Start with maximized window
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
     
+    # Container / Linux: use the chromedriver installed alongside Chromium.
+    # Windows: download a matching chromedriver.exe as before.
+    driver_path = os.getenv("CHROMEDRIVER_PATH")
+    if not driver_path:
+        if os.name != "nt":
+            driver_path = "/usr/bin/chromedriver"
+        else:
+            driver_path = setup_windows_chromedriver()
+            if not driver_path:
+                return
+
     # Initialize WebDriver
     if not os.path.exists(driver_path):
         print(f"Error: ChromeDriver not found at {driver_path}")
@@ -648,10 +673,10 @@ def main():
         print("Please make sure Chrome and ChromeDriver versions match")
         return
     
-    # Set a realistic user agent
-    driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
-    })
+    # Set a realistic user agent. Headless Chrome advertises "HeadlessChrome",
+    # so replace that with the real browser version.
+    user_agent = driver.execute_script("return navigator.userAgent").replace("HeadlessChrome", "Chrome")
+    driver.execute_cdp_cmd('Network.setUserAgentOverride', {"userAgent": user_agent})
     
     try:
         # Navigate to the website
