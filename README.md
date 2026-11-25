@@ -1,6 +1,6 @@
-# AliExpress Coin Collector
+# AliExpress Coin Collector for Linux / Lubuntu
 
-An automated tool to help collect daily coins on AliExpress with human-like interactions to avoid detection.
+An automated Python tool to help collect daily coins on AliExpress with human-like interactions to avoid detection, adapted to run on Linux environments (such as Lubuntu/Ubuntu).
 
 ## Features
 
@@ -9,44 +9,69 @@ An automated tool to help collect daily coins on AliExpress with human-like inte
 - Collects daily coins with realistic human-like behavior
 - Interactive manual confirmation steps for critical actions
 - Secure credential management using environment variables
+- Native WebDriver initialization on Linux via Selenium Manager (no `winreg` dependency or manual `chromedriver.exe` download)
 
 ## Prerequisites
 
-- Python 3.7+
-- Google Chrome browser
+- Python 3.7+ (including `python3-venv` for isolated environments)
+- Google Chrome (or Chromium) browser
 - A valid AliExpress account
 
-## Installation
+## Installation on Linux
 
-1. Clone this repository:
+1. Clone the repository:
    ```
-   git clone https://github.com/YOUR_USERNAME/AliExpress-Coin-Collector.git
-   cd AliExpress-Coin-Collector
-   ```
+   git clone [https://github.com/mouad73/AliexpressCollecteCoins.git](https://github.com/mouad73/AliexpressCollecteCoins.git)
+   cd AliexpressCollecteCoins
+   
+Note: If you plan to use SSH authentication with your own repository or fork on GitHub, generate an `ed25519` key using `ssh-keygen -t ed25519`, add it to `ssh-agent`, register the public key on GitHub, and clone via `git@github.com:YOUR_USERNAME/YOUR_REPO.git`.)
 
-2. Install required packages:
+1. Create and activate a Python virtual environment (recommended on systems enforcing PEP 668 / `externally-managed-environment`):
+   ```
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+ (If `venv` is not available, install it with `sudo apt update && sudo apt install -y python3-venv`.)
+
+2. Install the required packages inside the virtual environment:
    ```
    pip install -r requirements.txt
    ```
 
-3. Create a `.env` file for your credentials:
+3. Adapt `collect_coins.py` for Linux:
+   Create a backup of the original file before editing:
+   ```
+   cp collect_coins.py collect_coins.py.bak
+   ```
+
+   Replace the `winreg` detection and `chromedriver-win64.zip` / `chromedriver.exe` download block with direct initialization via Selenium Manager:
+   ```
+   # Initialize WebDriver natively on Linux via Selenium Manager
+   try:
+    driver = webdriver.Chrome(options=chrome_options)
+    print("WebDriver initialized successfully")
+    ```
+   
+4. Create a `.env` file from the example template:
    ```
    cp .env.example .env
    ```
 
-4. Edit the `.env` file with your AliExpress login credentials:
+5. Edit the .env file with your AliExpress login credentials:
    ```
    ALIEXPRESS_EMAIL=your_actual_email@example.com
    ALIEXPRESS_PASSWORD=your_actual_password
    ```
-
 ## Usage
-
 Run the script with:
+   ```
+   python collect_coins.py
+   ```
 
-```
-python collect_coins.py
-```
+Or invoke the virtual environment's Python interpreter directly:
+   ```
+   ~/AliexpressCollecteCoins/venv/bin/python collect_coins.py
+   ```
 
 The script will:
 1. Open a Chrome browser window
@@ -57,36 +82,20 @@ The script will:
 6. Collect the daily coins
 7. Close the browser when complete
 
-## Automated Daily Collection with Windows Task Scheduler
+## Automated Daily Collection on Linux (cron)
 
-You can set up Windows Task Scheduler to run the script automatically once per day:
+1. Instead of Windows Task Scheduler, you can schedule daily runs on Linux using `cron`:
 
-### Create a Batch File
-
-1. Create a file named `run_collector.bat` in the project directory with the following content:
-   ```bat
-   @echo off
-   cd /d %~dp0
-   echo Running AliExpress Coin Collector at %date% %time%
-   python collect_coins.py
-   echo Collection completed at %date% %time%
-   pause
+Open your user `crontab`:
+   ```
+crontab -e
    ```
 
-### Set Up Task Scheduler
-
-1. Press **Win + S** and search for "Task Scheduler"
-2. Click on "Create Basic Task..." in the right panel
-3. Enter a name (e.g., "AliExpress Coin Collector") and description
-4. Select "Daily" for the trigger and set your preferred time (e.g., 10:00 AM)
-5. Select "Start a program" for the action
-6. Browse and select your `run_collector.bat` file
-7. Set the "Start in" field to your project directory path (e.g., `C:\Users\username\AliExpress-Coin-Collector`)
-8. Check "Open the Properties dialog..." and click Finish
-9. In the Properties dialog:
-   - Go to the "General" tab and check "Run whether user is logged in or not"
-   - Go to the "Settings" tab and uncheck "Stop the task if it runs longer than..."
-   - Click "OK" to save the task
+2. Add a line to run daily at your preferred time (e.g., 10:00 AM):
+   ```
+   0 10 * * * cd /home/your_username/AliexpressCollecteCoins && /home/your_username/AliexpressCollecteCoins/venv/bin/python collect_coins.py >> /home/your_username/AliexpressCollecteCoins/collector.log 2>&1
+   ```
+(Keep in mind that the script uses manual `input()` prompts, so fully unattended execution requires modifying the code.)
 
 ### Important Notes about Automation
 
@@ -113,11 +122,13 @@ This design prevents errors if AliExpress changes its interface layout.
 
 ## Troubleshooting
 
-If you encounter issues:
+1. `error: externally-managed-environment` when running `pip install`: Create and activate a virtual environment (`python3 -m venv venv && source venv/bin/activate`) before installing dependencies.
 
-- **Login Failures**: Ensure your credentials in the `.env` file are correct
-- **Element Not Found Errors**: AliExpress may have updated their website. Please create an issue on GitHub
-- **Captcha Challenges**: The script includes human-like behavior, but if you encounter captchas frequently, try reducing usage frequency
+2. `No module named 'winreg'`: The original script attempts to read the Windows Registry and download `chromedriver.exe`. Remove that block and initialize `webdriver.Chrome(options=chrome_options)` directly on Linux.
+
+3. Login Failures / Element Not Found Errors: AliExpress frequently updates its selectors, displayed currency/language (e.g., `BRL/R$` instead of `USD`), and login flows. Inspect the page in Chrome (`F12`) to update the selectors in the code.
+
+4. Captcha Challenges: The script includes human-like behavior, but if you encounter captchas frequently, try reducing usage frequency or using a persistent Chrome profile.
 
 ## Legal Disclaimer
 
